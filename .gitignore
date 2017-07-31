@@ -1,0 +1,14 @@
+.DS_Store
+*.swp
+*.tmp
+*.bak
+.ipynb_checkpoints/
+__pycache__/
+
+PLAN
+tests.ipynb
+archive/
+predictions/
+data/arguments/
+data/features.csv
+data/mq.csv
