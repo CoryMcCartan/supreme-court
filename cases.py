@@ -11,19 +11,15 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 
-def calculate(scores=None, votes=None, scdb=None):
+def calculate(scores=None, votes=None, scdb=None, format="npy"):
     global J, K, T
 
     if not isinstance(scores, np.ndarray):
         scores = np.load("computed/scores_2d.npy")
-    if not isinstance(votes, np.ndarray):
-        votes = pd.read_csv("data/votes.csv")
     if not isinstance(votes, pd.DataFrame):
+        votes = pd.read_csv("data/votes.csv")
+    if not isinstance(scdb, pd.DataFrame):
         scdb = pd.read_hdf("data/scdb_justices.hdf5")
-
-    # load justice names
-    with open("data/justice_lookup.json", "r") as f:
-        justices = np.array(json.load(f))
 
     J = scores.shape[1]  # number of justices
     K = votes.shape[0]   # number of cases
@@ -58,7 +54,26 @@ def calculate(scores=None, votes=None, scdb=None):
 
         case_points[k] = np.array([cutline, reverse, affirm])
 
-    np.save("computed/case_points.npy", case_points)
+    if format == "npy":
+        np.save("computed/case_points.npy", case_points)
+    elif format == "csv":
+        ids = votes.iloc[:, 0].values
+        cases = scdb[scdb.caseId.isin(ids)].drop_duplicates("caseId")
+        d = {
+                "id": ids,
+                "docket": cases.docket,
+                "name": cases.caseName,
+                "slope": case_points[:, 0, 0],
+                "intercept": case_points[:, 0, 1],
+                "reverse1": case_points[:, 1, 0],
+                "reverse2": case_points[:, 1, 1],
+                "affirm1": case_points[:, 2, 0],
+                "affirm2": case_points[:, 2, 1],
+            }
+        data = pd.DataFrame(d)
+        data.to_csv("computed/case_points.csv", index=False)
+    else:
+        raise Exception(f"Output file format not recognized: '{format}'")
 
     return case_points
 
@@ -130,4 +145,4 @@ def calc_unanimous(scdb, case_scores, case_id, active, reverse):
 
 
 if __name__ == "__main__":
-    calculate()
+    calculate(format="csv")

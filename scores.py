@@ -12,19 +12,17 @@ from sklearn.manifold import MDS
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-def calculate(votes=None, n_dim=2, window=4, span=None, predictive=True, plot=False):
+def calculate(votes=None, n_dim=2, window=4, span=None, predictive=True, plot=False, format="npy"):
     if not 1 <= n_dim <= 2:
         raise Exception(f"Can only calculate scores in 1 or 2 dimensions, not {n_dim}.")
     if span is None:
         span = 32 if n_dim == 2 else 8
 
-    # load justice names
-    with open("data/justice_lookup.json", "r") as f:
-        justices = json.load(f)
+    justices = pd.read_csv("data/justices.csv")
 
-    SCALIA = justices.index("AScalia")
-    GINSBURG = justices.index("RBGinsburg")
-    BREYER = justices.index("SGBreyer")
+    SCALIA = justices[justices.lastName == "Scalia"].index[0]
+    GINSBURG = justices[justices.lastName == "Ginsburg"].index[0]
+    BREYER = justices[justices.lastName == "Breyer"].index[0]
 
     # load votes matrix from file if not passed
     if not isinstance(votes, np.ndarray):
@@ -135,26 +133,37 @@ def calculate(votes=None, n_dim=2, window=4, span=None, predictive=True, plot=Fa
         scores[:start, j] = np.nan
         scores[end+1:, j] = np.nan
 
-    np.save(f"computed/scores_{n_dim}d.npy", scores)
+    if format == "npy":
+        np.save(f"computed/scores_{n_dim}d.npy", scores)
+    elif format == "csv" and n_dim == 2:
+        # combine into complex array
+        cmplx_scores = np.empty((J, T), dtype=complex)
+        cmplx_scores.real = scores[:, :, 0].T
+        cmplx_scores.imag = scores[:, :, 1].T
+        # create output dataframe
+        data = pd.DataFrame(cmplx_scores, columns=terms)
+        data.loc[:, "firstName"] = justices.firstName
+        data.loc[:, "lastName"] = justices.lastName
+        data.loc[:, "seat"] = justices.seat
+        data.loc[:, "id"] = range(J)
+        # convert to long form
+        data = pd.melt(data, id_vars=["id", "lastName", "firstName", "seat"], 
+                value_vars=terms, var_name="term", value_name="score1")
+        # extract scores from complex numbers
+        data.loc[:, "score2"] = data.score1.imag
+        data.loc[:, "score1"] = data.score1.real
+        # sort, trim, and output
+        data.sort_values(["id", "term"], inplace=True)
+        data.dropna(inplace=True)
+        data.to_csv(f"computed/scores_2d.csv", index=False)
+    else:
+        raise Exception(f"Output file format not recognized: '{format}'")
 
 
     # plot
     if not plot: 
         return scores
 
-    # coloring purposes
-    seats = {
-        "HLBlack": 1, "SFReed": 6, "FFrankfurter": 2, "WODouglas": 4,
-        "FMurphy": 7, "RHJackson": 5, "WBRutledge": 3, "HHBurton": 8,
-        "FMVinson": 0, "TCClark": 7, "SMinton": 3, "EWarren": 0,
-        "JHarlan2": 5, "WJBrennan": 3, "CEWhittaker": 6, "PStewart": 8,
-        "BRWhite": 6, "AJGoldberg": 2, "AFortas": 2, "TMarshall": 7,
-        "WEBurger": 0, "HABlackmun": 2, "LFPowell": 1, "WHRehnquist": 0,
-        "JPStevens": 4, "SDOConnor": 8, "AScalia": 5, "AMKennedy": 1,
-        "DHSouter": 3, "CThomas": 7, "RBGinsburg": 6, "SGBreyer": 2,
-        "JGRoberts": 0, "SAAlito": 8, "SSotomayor": 3, "EKagan": 4,
-        "NGorsuch": 5,
-    }
     colors = ["#000000", "#f1c40f", "#e67e22", "#c0392b", "#95a5a6", "#455a6e", 
             "#8e44ad", "#3498db", "#27ae60"]
 
@@ -165,10 +174,10 @@ def calculate(votes=None, n_dim=2, window=4, span=None, predictive=True, plot=Fa
         score = scores[start:end, j]
         if len(score) == 0: continue
 
-        name = justices[j]
+        name = justices.iloc[j].lastName
         if n_dim == 1:
             plt.plot(np.arange(start + t_start, end + t_start), score[:, 0],
-                    lw=3, c=colors[seats[name]])
+                    lw=3, c=colors[justices.iloc[j].seat])
             plt.text(end + t_start - 0.5, score[-1, 0], name, fontsize=8,
                     va="center", ha="left")
             plt.xlim(1950, t_end)
@@ -176,12 +185,11 @@ def calculate(votes=None, n_dim=2, window=4, span=None, predictive=True, plot=Fa
             plt.ylabel("Score")
         elif n_dim == 2:
             alph = 1 if end == T  else 0.2
-            plt.plot(score[:, 0], score[:, 1], lw=3, c=colors[seats[name]],
-                    alpha=alph)
+            color = colors[justices.iloc[j].seat]
+            plt.plot(score[:, 0], score[:, 1], lw=3, c=color, alpha=alph)
             plt.text(score[-1, 0], score[-1, 1], name, fontsize=8, va="center",
                     ha="left")
-            plt.scatter([score[-1, 0]], [score[-1, 1]], s=32,
-                    c=colors[seats[name]], alpha=alph)
+            plt.scatter([score[-1, 0]], [score[-1, 1]], s=32, c=color, alpha=alph)
             plt.xlabel("Score 1")
             plt.ylabel("Score 2")
 
@@ -195,4 +203,4 @@ def calculate(votes=None, n_dim=2, window=4, span=None, predictive=True, plot=Fa
 
 if __name__ == "__main__":
     n_dim = int(sys.argv[1]) if len(sys.argv) > 1 else 2
-    calculate(n_dim=n_dim, plot=True, predictive=True)
+    calculate(n_dim=n_dim, plot=True, predictive=True, format="csv")
